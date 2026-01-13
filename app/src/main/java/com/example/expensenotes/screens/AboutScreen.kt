@@ -117,7 +117,7 @@ fun AboutScreen() {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "This application is made by me and for me. Feel free to check this out. You can view your raw JSON expenses in your Documents folder, the file is named expenses.json",
+                        text = "This application is made by me and for me. Feel free to check this out.",
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
