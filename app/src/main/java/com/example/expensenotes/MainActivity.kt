@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     drawerContent = {
-                            ModalDrawerSheet( modifier = Modifier.width(200.dp).padding(0.dp) ) {
+                        ModalDrawerSheet( modifier = Modifier.width(200.dp).padding(0.dp) ) {
                             Text(
                                 text = "X",
                                 fontSize = 35.sp,
@@ -72,23 +72,23 @@ class MainActivity : ComponentActivity() {
                                 }
                                     navController.navigate("viewexpenses") }
                             )
-                                NavigationDrawerItem(
-                                    label = { Text("Delete Expenses") },
-                                    selected = currentRoute == "deleteexpenses",
-                                    onClick = { scope.launch {
-                                        drawerState.close()
-                                    }
-                                        navController.navigate("deleteexpenses") }
-                                )
+                            NavigationDrawerItem(
+                                label = { Text("Delete Expenses") },
+                                selected = currentRoute == "deleteexpenses",
+                                onClick = { scope.launch {
+                                    drawerState.close()
+                                }
+                                    navController.navigate("deleteexpenses") }
+                            )
 
-                                NavigationDrawerItem(
-                                    label = { Text("About") },
-                                    selected = currentRoute == "about",
-                                    onClick = { scope.launch {
-                                        drawerState.close()
-                                    }
-                                        navController.navigate("about") }
-                                )
+                            NavigationDrawerItem(
+                                label = { Text("About") },
+                                selected = currentRoute == "about",
+                                onClick = { scope.launch {
+                                    drawerState.close()
+                                }
+                                    navController.navigate("about") }
+                            )
 
                         }
                     }

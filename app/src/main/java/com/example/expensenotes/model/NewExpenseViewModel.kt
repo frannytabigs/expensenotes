@@ -2,7 +2,6 @@ package com.example.expensenotes.model
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.expensenotes.screens.DayGroup
@@ -34,7 +33,7 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
     private val fileName = "expenses.json"
     private val gson = Gson()
 
-    private val folder: File = File( Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Expense Notes")
+    private val folder: File? = getApplication<Application>().getExternalFilesDir(null)
 
     fun updateDescription(newDescription: String) {
         _uiState.update { it.copy(description = newDescription) }
@@ -64,13 +63,7 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(Dispatchers.IO) {
             clearError()
 
-            if (!folder.exists()) {
-                val created = folder.mkdirs()
-                if (!created) {
-                    _uiState.update { it.copy(errorMessage = "Missing document folder in your internal storage!") }
-                    return@launch
-                }
-            }
+            if (folder == null) return@launch
 
             try {
                 val currentState = _uiState.value
@@ -108,6 +101,7 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isLoading = true) }
 
+            if (folder == null) return@launch
             val file = File(folder, fileName)
 
             if (!folder.exists() || !file.exists()) {
@@ -169,6 +163,7 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
     fun deleteExpense(expenseToDelete: NewExpenseModel) {
         viewModelScope.launch(Dispatchers.IO) {
             clearError()
+            if (folder == null) return@launch
             val file = File(folder, fileName)
 
             if (!file.exists()) return@launch
