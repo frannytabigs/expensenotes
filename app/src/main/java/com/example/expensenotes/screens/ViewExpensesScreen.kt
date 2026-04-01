@@ -2,16 +2,23 @@ package com.example.expensenotes.screens
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,6 +37,7 @@ data class DayGroup(
     val expenses: List<NewExpenseModel>
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewExpensesScreen(
     viewModel: NewExpenseViewModel = viewModel()
@@ -38,50 +46,147 @@ fun ViewExpensesScreen(
     val monthlyData by viewModel.monthlyData.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
 
-    if (uiState.isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+    // 1. Get the FocusManager to control keyboard/focus state
+    val focusManager = LocalFocusManager.current
+
+    // Search query state
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Filter logic: Only recalculates when searchQuery or monthlyData changes
+    val filteredData by remember(searchQuery, monthlyData) {
+        derivedStateOf {
+            if (searchQuery.isBlank()) {
+                monthlyData
+            } else {
+                val query = searchQuery.lowercase()
+                monthlyData.mapNotNull { month ->
+                    // Filter days inside the month
+                    val filteredDays = month.days.mapNotNull { day ->
+                        // Filter expenses inside the day based on description, amount, date, or month name
+                        val filteredExpenses = day.expenses.filter { expense ->
+                            expense.description.lowercase().contains(query) ||
+                                    expense.amount.contains(query) ||
+                                    day.dateDisplay.lowercase().contains(query) ||
+                                    month.monthName.lowercase().contains(query)
+                        }
+
+                        // If the day has matching expenses, keep it and recalculate its total
+                        if (filteredExpenses.isNotEmpty()) {
+                            day.copy(
+                                expenses = filteredExpenses,
+                                dayTotal = filteredExpenses.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+                            )
+                        } else null
+                    }
+
+                    // If the month has matching days, keep it and recalculate its total
+                    if (filteredDays.isNotEmpty()) {
+                        month.copy(
+                            days = filteredDays,
+                            monthTotal = filteredDays.sumOf { it.dayTotal }
+                        )
+                    } else null
+                }
+            }
         }
     }
-    else if (monthlyData.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
-                .imePadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
-        ) {
-            Spacer(modifier = Modifier.height(45.dp))
 
-            Icon(
-                imageVector = Icons.Default.Description,
-                contentDescription = null,
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.outlineVariant
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "No recorded expenses yet",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-        }
-    } else {
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+            .background(MaterialTheme.colorScheme.background)
+            // 2. Add pointer input to detect taps outside the search bar and clear focus
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    focusManager.clearFocus()
+                })
+            }
     ) {
-        items(monthlyData) { month ->
-            MonthSection(month)
+        // --- SEARCH BAR ---
+        // Only show search bar if there is actual data available to search through
+        if (monthlyData.isNotEmpty() || searchQuery.isNotEmpty()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                placeholder = { Text("Search expenses") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            searchQuery = ""
+                            focusManager.clearFocus() // Also hide keyboard when clearing search
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear Search")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            )
+        }
+
+        // --- MAIN CONTENT ---
+        if (uiState.isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (monthlyData.isEmpty()) {
+            // Empty state: No data at all
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .imePadding(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top
+            ) {
+                Spacer(modifier = Modifier.height(45.dp))
+                Icon(
+                    imageVector = Icons.Default.Description,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.outlineVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No recorded expenses yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else if (filteredData.isEmpty()) {
+            // Empty state: Search yielded no results
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No results found for \"$searchQuery\"",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp)
+                )
+            }
+        } else {
+            // List of Expenses
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                items(filteredData) { month ->
+                    MonthSection(month)
+                }
+            }
         }
     }
-}
 }
 
 @Composable
@@ -149,14 +254,17 @@ fun DayCard(day: DayGroup) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = expense.description,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f) // Keeps long descriptions from squishing the amount
                     )
+                    Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = formatAmount(expense.amount.toDoubleOrNull() ?: 0.0),
                         fontSize = 16.sp,

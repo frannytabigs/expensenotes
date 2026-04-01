@@ -23,6 +23,7 @@ import com.example.expensenotes.screens.ViewExpensesScreen
 import com.example.expensenotes.screens.DeleteExpensesScreen
 import com.example.expensenotes.screens.AboutScreen
 import com.example.expensenotes.ui.theme.ExpenseNotesTheme
+import com.example.expensenotes.screens.StatisticsScreen
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 
@@ -72,6 +73,14 @@ class MainActivity : ComponentActivity() {
                                 }
                                     navController.navigate("viewexpenses") }
                             )
+
+                            NavigationDrawerItem(
+                                label = { Text("Statistics") },
+                                selected = currentRoute == "statistics",
+                                onClick = { scope.launch { drawerState.close() }
+                                    navController.navigate("statistics") }
+                            )
+
                             NavigationDrawerItem(
                                 label = { Text("Delete Expenses") },
                                 selected = currentRoute == "deleteexpenses",
@@ -121,6 +130,7 @@ class MainActivity : ComponentActivity() {
                             composable("newexpense") { NewExpenseScreen() }
                             composable("viewexpenses") { ViewExpensesScreen()}
                             composable("deleteexpenses") {DeleteExpensesScreen()}
+                            composable("statistics") { StatisticsScreen() }
                             composable("about") {AboutScreen()}
 
                         }
