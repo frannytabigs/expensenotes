@@ -20,7 +20,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.expensenotes.screens.NewExpenseScreen
 import com.example.expensenotes.screens.ViewExpensesScreen
-import com.example.expensenotes.screens.DeleteExpensesScreen
+import com.example.expensenotes.screens.ModifyExpensesScreen
 import com.example.expensenotes.screens.AboutScreen
 import com.example.expensenotes.ui.theme.ExpenseNotesTheme
 import com.example.expensenotes.screens.StatisticsScreen
@@ -82,12 +82,12 @@ class MainActivity : ComponentActivity() {
                             )
 
                             NavigationDrawerItem(
-                                label = { Text("Delete Expenses") },
-                                selected = currentRoute == "deleteexpenses",
+                                label = { Text("Modify Expenses") },
+                                selected = currentRoute == "modifyexpenses",
                                 onClick = { scope.launch {
                                     drawerState.close()
                                 }
-                                    navController.navigate("deleteexpenses") }
+                                    navController.navigate("modifyexpenses") }
                             )
 
                             NavigationDrawerItem(
@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             composable("newexpense") { NewExpenseScreen() }
                             composable("viewexpenses") { ViewExpensesScreen()}
-                            composable("deleteexpenses") {DeleteExpensesScreen()}
+                            composable("modifyexpenses") {ModifyExpensesScreen()}
                             composable("statistics") { StatisticsScreen() }
                             composable("about") {AboutScreen()}
 

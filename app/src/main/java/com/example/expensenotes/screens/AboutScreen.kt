@@ -80,7 +80,7 @@ fun AboutScreen() {
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        text = "Version 1.0.0",
+                        text = "Version 1.3.0",
                         color = Color.White,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
@@ -119,6 +119,14 @@ fun AboutScreen() {
                     Text(
                         text = "This application is made by me and for me. Feel free to check this out.",
                         textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 24.sp
+                    )
+
+
+                    Text(
+                        text = "\nNext thing to do:\n- Add a backup feature, like the JSON file, you can export and import\n- Enhance the UI\n- Add more stuff in the statistics, like maybe mean median mode and stuffs like that",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 24.sp

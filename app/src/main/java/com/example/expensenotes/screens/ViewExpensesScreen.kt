@@ -22,8 +22,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.expensenotes.model.NewExpenseModel
+import com.example.expensenotes.model.ExpenseEntity
 import com.example.expensenotes.model.NewExpenseViewModel
+import kotlinx.coroutines.delay
 
 data class MonthGroup(
     val monthName: String,
@@ -34,7 +35,7 @@ data class MonthGroup(
 data class DayGroup(
     val dateDisplay: String,
     val dayTotal: Double,
-    val expenses: List<NewExpenseModel>
+    val expenses: List<ExpenseEntity>
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,72 +43,33 @@ data class DayGroup(
 fun ViewExpensesScreen(
     viewModel: NewExpenseViewModel = viewModel()
 ) {
-    LaunchedEffect(Unit) { viewModel.loadExpenses() }
     val monthlyData by viewModel.monthlyData.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
 
-    // 1. Get the FocusManager to control keyboard/focus state
     val focusManager = LocalFocusManager.current
 
-    // Search query state
-    var searchQuery by remember { mutableStateOf("") }
+    // --- NEW: Loading State to let the Sidebar close smoothly ---
+    var isScreenReady by remember { mutableStateOf(false) }
 
-    // Filter logic: Only recalculates when searchQuery or monthlyData changes
-    val filteredData by remember(searchQuery, monthlyData) {
-        derivedStateOf {
-            if (searchQuery.isBlank()) {
-                monthlyData
-            } else {
-                val query = searchQuery.lowercase()
-                monthlyData.mapNotNull { month ->
-                    // Filter days inside the month
-                    val filteredDays = month.days.mapNotNull { day ->
-                        // Filter expenses inside the day based on description, amount, date, or month name
-                        val filteredExpenses = day.expenses.filter { expense ->
-                            expense.description.lowercase().contains(query) ||
-                                    expense.amount.contains(query) ||
-                                    day.dateDisplay.lowercase().contains(query) ||
-                                    month.monthName.lowercase().contains(query)
-                        }
-
-                        // If the day has matching expenses, keep it and recalculate its total
-                        if (filteredExpenses.isNotEmpty()) {
-                            day.copy(
-                                expenses = filteredExpenses,
-                                dayTotal = filteredExpenses.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
-                            )
-                        } else null
-                    }
-
-                    // If the month has matching days, keep it and recalculate its total
-                    if (filteredDays.isNotEmpty()) {
-                        month.copy(
-                            days = filteredDays,
-                            monthTotal = filteredDays.sumOf { it.dayTotal }
-                        )
-                    } else null
-                }
-            }
-        }
+    LaunchedEffect(Unit) {
+        viewModel.updateSearchQuery("")
+        // Wait 250 milliseconds to let the menu animation finish completely
+        delay(1111)
+        isScreenReady = true
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            // 2. Add pointer input to detect taps outside the search bar and clear focus
             .pointerInput(Unit) {
-                detectTapGestures(onTap = {
-                    focusManager.clearFocus()
-                })
+                detectTapGestures(onTap = { focusManager.clearFocus() })
             }
     ) {
-        // --- SEARCH BAR ---
-        // Only show search bar if there is actual data available to search through
         if (monthlyData.isNotEmpty() || searchQuery.isNotEmpty()) {
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { viewModel.updateSearchQuery(it) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
@@ -116,8 +78,8 @@ fun ViewExpensesScreen(
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = {
-                            searchQuery = ""
-                            focusManager.clearFocus() // Also hide keyboard when clearing search
+                            viewModel.updateSearchQuery("")
+                            focusManager.clearFocus()
                         }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear Search")
                         }
@@ -133,18 +95,14 @@ fun ViewExpensesScreen(
             )
         }
 
-        // --- MAIN CONTENT ---
-        if (uiState.isLoading) {
+        // --- NEW: Show loading spinner if screen is not ready ---
+        if (!isScreenReady) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
-        } else if (monthlyData.isEmpty()) {
-            // Empty state: No data at all
+        } else if (monthlyData.isEmpty() && searchQuery.isBlank()) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .imePadding(),
+                modifier = Modifier.fillMaxSize().padding(24.dp).imePadding(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Top
             ) {
@@ -163,8 +121,7 @@ fun ViewExpensesScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        } else if (filteredData.isEmpty()) {
-            // Empty state: Search yielded no results
+        } else if (monthlyData.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "No results found for \"$searchQuery\"",
@@ -174,63 +131,69 @@ fun ViewExpensesScreen(
                     modifier = Modifier.padding(32.dp)
                 )
             }
+            // Inside ViewExpensesScreen, replace your LazyColumn block with this:
         } else {
-            // List of Expenses
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(filteredData) { month ->
-                    MonthSection(month)
+                // Loop through months, but let LazyColumn handle the items!
+                monthlyData.forEach { month ->
+                    // 1. Render just the Month Title
+                    item(key = "header_${month.monthName}") {
+                        MonthHeader(month.monthName, month.monthTotal)
+                    }
+
+                    // 2. Render the Days individually (THIS is where the lag disappears)
+                    items(
+                        items = month.days,
+                        key = { day -> "day_${month.monthName}_${day.dateDisplay}" }
+                    ) { day ->
+                        DayCard(day)
+                    }
                 }
             }
         }
     }
 }
 
+// Add this new Composable to replace the old MonthSection
 @Composable
-fun MonthSection(month: MonthGroup) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp, start = 8.dp, end = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+fun MonthHeader(monthName: String, monthTotal: Double) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 4.dp, start = 8.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = monthName.uppercase(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 20.sp,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = MaterialTheme.shapes.small
         ) {
             Text(
-                text = month.monthName.uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.primary
+                text = "\uD83D\uDCB8 ${formatAmount(monthTotal)}",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = MaterialTheme.shapes.small
-            ) {
-                Text(
-                    text = "\uD83D\uDCB8 ${formatAmount(month.monthTotal)}",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-        }
-        month.days.forEach { day ->
-            DayCard(day)
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
+// Keep your existing DayCard and formatAmount functions the same!
 @Composable
 fun DayCard(day: DayGroup) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -243,17 +206,12 @@ fun DayCard(day: DayGroup) {
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(8.dp))
 
             day.expenses.forEach { expense ->
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -262,7 +220,7 @@ fun DayCard(day: DayGroup) {
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f) // Keeps long descriptions from squishing the amount
+                        modifier = Modifier.weight(1f)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
@@ -275,27 +233,14 @@ fun DayCard(day: DayGroup) {
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "TOTAL:",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "\uD83D\uDCB8 ${formatAmount(day.dayTotal)}",
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Text(text = "TOTAL:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(text = "\uD83D\uDCB8 ${formatAmount(day.dayTotal)}", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
