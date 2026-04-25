@@ -56,7 +56,7 @@ fun ModifyExpensesScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            placeholder = { Text("Search by description or amount...") },
+            placeholder = { Text("Search expenses") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
