@@ -280,7 +280,7 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
                     response.isSuccessful -> "Backup sent successfully! ✅"
                     code == 401 || code == 404 -> "Error: Telegram bot credentials are not correct."
                     code == 400 -> "Error: Chat not found. Please double-check your Chat ID."
-                    else -> "Unexpected error ($code). If it continues, message the author @frannytg in telegram for your troubles.\nDo you have internet? Does the app have been permission to access the internet in the permissions? Or maybe the JSON file is still empty because you yet have to record your expenses XD."
+                    else -> "Unexpected error ($code). If it continues, message the author @frannytg in telegram for your troubles.\nDo you have internet? Does the app have been permission to access the internet in the permissions? Or maybe the JSON file is still empty because you yet have to record your expenses XD.\nLastly, did your bot reached Telegrams rate limit??"
                 }
 
                 viewModelScope.launch(Dispatchers.Main) {
