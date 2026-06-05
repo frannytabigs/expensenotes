@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                             )
 
                             NavigationDrawerItem(
-                                label = { Text("Backup Expenses") },
+                                label = { Text("Import / Export") },
                                 selected = currentRoute == "backupexpenses",
                                 onClick = { scope.launch {
                                     drawerState.close()

@@ -30,4 +30,14 @@ interface ExpenseDao {
     // ADD THIS to ExpenseDao.kt
     @Query("SELECT * FROM expenses_table") // Make sure "expenses" matches your actual table name!
     suspend fun getAllExpensesForBackup(): List<ExpenseEntity>
+
+    // ADD THESE to ExpenseDao.kt
+
+    // Deletes all current records for a fresh restore
+    @Query("DELETE FROM expenses_table") // Ensure "expenses" is your actual table name
+    suspend fun deleteAllExpenses()
+
+    // Inserts a whole list of expenses at once
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(expenses: List<ExpenseEntity>)
 }

@@ -25,7 +25,6 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import java.io.IOException
 
 class NewExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -290,5 +289,42 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
                 response.close()
             }
         })
+    }
+
+    // --- RESTORE LOGIC ---
+
+    // Parses the JSON string and replaces the current database
+    fun restoreBackupFromJson(jsonString: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Tell Gson what type of list we are trying to create
+                val listType = object : TypeToken<List<ExpenseEntity>>() {}.type
+
+                // 2. Convert the JSON string back into a List of ExpenseEntity
+                val importedExpenses: List<ExpenseEntity> = Gson().fromJson(jsonString, listType)
+
+                if (importedExpenses.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        onResult(false, "The backup file is empty.")
+                    }
+                    return@launch
+                }
+
+                // 3. Wipe the current database and insert the new data
+                dao.deleteAllExpenses() // Change 'dao' to match your variable name
+                dao.insertAll(importedExpenses)
+
+                // 4. Reload the data so the UI updates immediately
+                loadExpenses()
+
+                withContext(Dispatchers.Main) {
+                    onResult(true, "Backup restored successfully! 🎉")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, "Invalid backup file. Could not restore data.")
+                }
+            }
+        }
     }
 }

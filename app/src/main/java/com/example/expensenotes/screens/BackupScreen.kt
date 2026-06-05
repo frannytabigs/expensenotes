@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
@@ -37,7 +38,6 @@ fun BackupScreen(
         context.getSharedPreferences("BackupPreferences", Context.MODE_PRIVATE)
     }
 
-    // Load saved values (or empty strings if nothing is saved yet)
     var botToken by remember { mutableStateOf(sharedPrefs.getString("bot_token", "") ?: "") }
     var chatId by remember { mutableStateOf(sharedPrefs.getString("chat_id", "") ?: "") }
 
@@ -47,9 +47,10 @@ fun BackupScreen(
     // 3. Loading states to prevent spam-clicking
     var isUploading by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
+    var isRestoring by remember { mutableStateOf(false) }
     var pendingJsonToSave by remember { mutableStateOf("") }
 
-    // Launcher for saving the file to the device
+    // Launcher for SAVING the file to the device (Export)
     val saveFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -65,10 +66,37 @@ fun BackupScreen(
         } else {
             scope.launch { snackbarHostState.showSnackbar("Save cancelled.") }
         }
-        isDownloading = false // Stop loading spinner
+        isDownloading = false
     }
 
-    // We use a Scaffold so the Snackbar can pop up over the content nicely
+    // Launcher for OPENING the file from the device (Import/Restore)
+    val openFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                // Read the file content
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val jsonString = inputStream?.bufferedReader().use { it?.readText() }
+
+                if (!jsonString.isNullOrBlank()) {
+                    isRestoring = true
+                    // Send the read string to the ViewModel to process
+                    viewModel.restoreBackupFromJson(jsonString) { success, message ->
+                        isRestoring = false
+                        scope.launch { snackbarHostState.showSnackbar(message) }
+                    }
+                } else {
+                    scope.launch { snackbarHostState.showSnackbar("The selected file is empty or invalid.") }
+                }
+            } catch (e: Exception) {
+                scope.launch { snackbarHostState.showSnackbar("Error reading the file.") }
+            }
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Restore cancelled.") }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
@@ -83,14 +111,14 @@ fun BackupScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Backup & Export",
+                text = "Import & Export Expenses",
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 24.dp)
             )
 
-            // --- TELEGRAM BACKUP CARD ---
+            // --- 1. TELEGRAM BACKUP CARD ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -114,14 +142,13 @@ fun BackupScreen(
                         value = botToken,
                         onValueChange = {
                             botToken = it
-                            // Save automatically as the user types
                             sharedPrefs.edit().putString("bot_token", it).apply()
                         },
                         label = { Text("Bot Token") },
                         leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        enabled = !isUploading
+                        enabled = !isUploading && !isRestoring
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -130,7 +157,6 @@ fun BackupScreen(
                         value = chatId,
                         onValueChange = {
                             chatId = it
-                            // Save automatically as the user types
                             sharedPrefs.edit().putString("chat_id", it).apply()
                         },
                         label = { Text("Chat ID") },
@@ -138,7 +164,7 @@ fun BackupScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        enabled = !isUploading
+                        enabled = !isUploading && !isRestoring
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -150,7 +176,7 @@ fun BackupScreen(
                                 return@Button
                             }
 
-                            isUploading = true // Start loading spinner
+                            isUploading = true
 
                             viewModel.generateBackupJson { jsonString ->
                                 if (jsonString != null) {
@@ -162,7 +188,6 @@ fun BackupScreen(
                                             if (message == "Sending...") {
                                                 scope.launch { snackbarHostState.showSnackbar(message) }
                                             } else {
-                                                // It finished (either success or fail)
                                                 isUploading = false
                                                 scope.launch { snackbarHostState.showSnackbar(message) }
                                             }
@@ -175,7 +200,7 @@ fun BackupScreen(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isUploading
+                        enabled = !isUploading && !isRestoring
                     ) {
                         if (isUploading) {
                             CircularProgressIndicator(
@@ -196,7 +221,7 @@ fun BackupScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- LOCAL DEVICE BACKUP CARD ---
+            // --- 2. LOCAL DEVICE BACKUP CARD ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -230,7 +255,7 @@ fun BackupScreen(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isDownloading
+                        enabled = !isDownloading && !isRestoring
                     ) {
                         if (isDownloading) {
                             CircularProgressIndicator(
@@ -244,6 +269,59 @@ fun BackupScreen(
                             Icon(Icons.Default.SaveAlt, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Download expenses.json")
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- 3. RESTORE BACKUP CARD ---
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Restore Data",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Warning: Restoring from a backup file will completely REPLACE your current expenses. This action cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            // Launch the file picker allowing the user to select only JSON files
+                            openFileLauncher.launch(arrayOf("application/json"))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        enabled = !isUploading && !isDownloading && !isRestoring
+                    ) {
+                        if (isRestoring) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onError,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restoring...")
+                        } else {
+                            Icon(Icons.Default.Restore, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restore from File")
                         }
                     }
                 }
