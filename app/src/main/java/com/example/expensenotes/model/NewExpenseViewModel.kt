@@ -23,6 +23,9 @@ import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.io.IOException
 
 class NewExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -192,5 +195,100 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
                 e.printStackTrace()
             }
         }
+    }
+
+    // --- BACKUP LOGIC ---
+
+    // 1. Extracts the database and turns it into a JSON string
+    fun generateBackupJson(onResult: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Fetch all items and convert them to a JSON string using Gson
+                val allExpenses = dao.getAllExpensesForBackup() // Change 'dao' to your actual DAO variable name if different
+                val jsonString = Gson().toJson(allExpenses)
+
+                withContext(Dispatchers.Main) {
+                    onResult(jsonString)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(null)
+                }
+            }
+        }
+    }
+
+    // 2. Uploads the JSON string to Telegram using OkHttp
+    fun sendBackupToTelegram(
+        botToken: String,
+        chatId: String,
+        jsonContent: String,
+        onStatusMessage: (String) -> Unit
+    ) {
+        if (botToken.isBlank() || chatId.isBlank()) {
+            onStatusMessage("Please enter both Bot Token and Chat ID.")
+            return
+        }
+
+        onStatusMessage("Sending...")
+
+        // Generate the current date and time nicely formatted (e.g., "June 05, 2026 at 10:50 PM")
+        val currentDateTime = java.time.LocalDateTime.now().format(
+            java.time.format.DateTimeFormatter.ofPattern("MMMM dd, yyyy 'at' hh:mm a")
+        )
+
+        // The fancy message sent alongside the file
+        val fancyCaption = """
+            ✨ <b>Backup Successful!</b> ✨
+            
+            Hello! Here is the expense backup you requested. 📦
+            
+            📅 <b>Date Requested:</b> $currentDateTime
+            
+            May your code compile on the first try, your architecture stay elegantly REST-ish, and your academic grind be ever victorious. 
+            
+            Keep building awesome things! ☕💻
+        """.trimIndent()
+
+        val client = OkHttpClient()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("chat_id", chatId)
+            .addFormDataPart("caption", fancyCaption) // The message payload
+            .addFormDataPart("parse_mode", "HTML")    // Allows bolding and HTML tags
+            .addFormDataPart(
+                "document",
+                "expenses_backup.json",
+                RequestBody.create("application/json".toMediaTypeOrNull(), jsonContent)
+            )
+            .build()
+
+        val request = Request.Builder()
+            .url("https://api.telegram.org/bot$botToken/sendDocument")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, javaIoException: java.io.IOException) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    onStatusMessage("Failed: You might not have internet access or the connection dropped.")
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val message = when {
+                    response.isSuccessful -> "Backup sent successfully! ✅"
+                    code == 401 || code == 404 -> "Error: Telegram bot credentials are not correct."
+                    code == 400 -> "Error: Chat not found. Please double-check your Chat ID."
+                    else -> "Unexpected error ($code). If it continues, message the author @tgfranny for your troubles."
+                }
+
+                viewModelScope.launch(Dispatchers.Main) {
+                    onStatusMessage(message)
+                }
+                response.close()
+            }
+        })
     }
 }

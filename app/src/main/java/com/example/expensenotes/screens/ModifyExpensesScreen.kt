@@ -2,6 +2,7 @@ package com.example.expensenotes.screens
 
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.expensenotes.model.ExpenseEntity
 import com.example.expensenotes.model.NewExpenseViewModel
 import kotlinx.coroutines.delay
+import java.time.LocalDate
 
 @Composable
 fun ModifyExpensesScreen(
@@ -34,6 +36,7 @@ fun ModifyExpensesScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
 
     var expenseToEdit by remember { mutableStateOf<ExpenseEntity?>(null) }
+    var expenseToDelete by remember { mutableStateOf<ExpenseEntity?>(null) } // NEW: State for delete confirmation
 
     // --- NEW: Loading State to let the Sidebar close smoothly ---
     var isScreenReady by remember { mutableStateOf(false) }
@@ -104,7 +107,6 @@ fun ModifyExpensesScreen(
                     modifier = Modifier.padding(32.dp)
                 )
             }
-            // Inside ModifyExpensesScreen, replace your LazyColumn block with this:
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -124,7 +126,7 @@ fun ModifyExpensesScreen(
                     ) { day ->
                         DayCardModify(
                             day = day,
-                            onDelete = { expense -> viewModel.deleteExpense(expense) },
+                            onDelete = { expense -> expenseToDelete = expense }, // UPDATED: Trigger confirmation dialog
                             onEdit = { expense -> expenseToEdit = expense }
                         )
                     }
@@ -133,12 +135,37 @@ fun ModifyExpensesScreen(
         }
     }
 
+    // NEW: Delete Confirmation Dialog
+    if (expenseToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { expenseToDelete = null },
+            title = { Text("Delete Expense", color = MaterialTheme.colorScheme.primary) },
+            text = { Text("Are you sure you want to delete this expense? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteExpense(expenseToDelete!!)
+                        expenseToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { expenseToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (expenseToEdit != null) {
         EditExpenseDialog(
             expense = expenseToEdit!!,
             onDismiss = { expenseToEdit = null },
-            onSave = { updatedDescription, updatedAmount ->
-                val updatedEntity = expenseToEdit!!.copy(description = updatedDescription, amount = updatedAmount)
+            onSave = { updatedDescription, updatedAmount, updatedDate -> // UPDATED: Accept updated date
+                val updatedEntity = expenseToEdit!!.copy(
+                    description = updatedDescription,
+                    amount = updatedAmount,
+                    date = updatedDate // Save the updated date
+                )
                 viewModel.updateExpense(updatedEntity)
                 expenseToEdit = null
             }
@@ -221,10 +248,12 @@ fun DayCardModify(
 fun EditExpenseDialog(
     expense: ExpenseEntity,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit
+    onSave: (String, String, String) -> Unit // UPDATED: Added third String for Date
 ) {
     var description by remember { mutableStateOf(expense.description) }
     var amount by remember { mutableStateOf(expense.amount) }
+    var date by remember { mutableStateOf(expense.date) } // NEW: State for Date
+    var isDatePickerOpen by remember { mutableStateOf(false) } // NEW: State to show DatePickerDialog
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -244,13 +273,29 @@ fun EditExpenseDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
+                // NEW: Date Field
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = { },
+                    label = { Text("Date (YYYY-MM-DD)") },
+                    readOnly = true,
+                    enabled = false, // Disable direct typing to force using the calendar
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isDatePickerOpen = true }, // Open DatePicker on click
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     if (description.isNotBlank() && amount.toDoubleOrNull() != null) {
-                        onSave(description, amount)
+                        onSave(description, amount, date) // UPDATED: Pass date back
                     }
                 }
             ) { Text("Save") }
@@ -259,4 +304,33 @@ fun EditExpenseDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    // NEW: The Date Picker Dialog
+    if (isDatePickerOpen) {
+        val initialDateMillis = try {
+            LocalDate.parse(date).toEpochDay() * 86400000
+        } catch (e: Exception) {
+            System.currentTimeMillis()
+        }
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)
+
+        DatePickerDialog(
+            onDismissRequest = { isDatePickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val millis = datePickerState.selectedDateMillis
+                    if (millis != null) {
+                        val localDate = LocalDate.ofEpochDay(millis / 86400000)
+                        date = localDate.toString()
+                    }
+                    isDatePickerOpen = false
+                }) { Text("Ok") }
+            },
+            dismissButton = {
+                TextButton(onClick = { isDatePickerOpen = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }

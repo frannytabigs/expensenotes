@@ -61,6 +61,8 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
+    implementation(libs.okhttp)
+
     // Room Database Dependencies
     val room_version = "2.6.1"
     implementation(libs.room.runtime)

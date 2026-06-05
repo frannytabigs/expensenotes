@@ -26,6 +26,7 @@ import com.example.expensenotes.ui.theme.ExpenseNotesTheme
 import com.example.expensenotes.screens.StatisticsScreen
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
+import com.example.expensenotes.screens.BackupScreen
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -91,6 +92,16 @@ class MainActivity : ComponentActivity() {
                             )
 
                             NavigationDrawerItem(
+                                label = { Text("Backup Expenses") },
+                                selected = currentRoute == "backupexpenses",
+                                onClick = { scope.launch {
+                                    drawerState.close()
+                                }
+                                    navController.navigate("backupexpenses") }
+                            )
+
+
+                            NavigationDrawerItem(
                                 label = { Text("About") },
                                 selected = currentRoute == "about",
                                 onClick = { scope.launch {
@@ -131,6 +142,7 @@ class MainActivity : ComponentActivity() {
                             composable("viewexpenses") { ViewExpensesScreen()}
                             composable("modifyexpenses") {ModifyExpensesScreen()}
                             composable("statistics") { StatisticsScreen() }
+                            composable("backupexpenses") { BackupScreen() }
                             composable("about") {AboutScreen()}
 
                         }

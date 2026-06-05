@@ -26,4 +26,8 @@ interface ExpenseDao {
     // NEW: Gets a simple, one-time list of all expenses to save to the JSON file
     @Query("SELECT * FROM expenses_table")
     suspend fun getAllExpensesList(): List<ExpenseEntity>
+
+    // ADD THIS to ExpenseDao.kt
+    @Query("SELECT * FROM expenses_table") // Make sure "expenses" matches your actual table name!
+    suspend fun getAllExpensesForBackup(): List<ExpenseEntity>
 }

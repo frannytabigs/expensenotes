@@ -11,11 +11,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,7 +39,6 @@ fun String.toSafeDouble(): Double = this.toDoubleOrNull() ?: 0.0
 // -------------------------
 // FALLBACK DATA MODELS
 // -------------------------
-// Added 'date' so we can show it in the pop-up
 data class ExpenseItem(val amount: Double, val description: String, val date: String)
 
 sealed class StatDetail {
@@ -65,14 +63,13 @@ fun StatisticsScreen(
     var selectedStat by remember { mutableStateOf<StatDetail?>(null) }
     var showLineChart by remember { mutableStateOf(true) }
 
-    // Map through months and days so we can attach the formatted date to each expense
     val expenseItems = monthlyData.flatMap { month ->
         month.days.flatMap { day ->
             day.expenses.map { expense ->
                 ExpenseItem(
                     amount = expense.amount.toSafeDouble(),
                     description = expense.description.ifBlank { "No Description" },
-                    date = day.dateDisplay // Grab the nicely formatted date from the DayGroup
+                    date = day.dateDisplay
                 )
             }
         }
@@ -81,13 +78,27 @@ fun StatisticsScreen(
     val totalExpenses = expenseItems.sumOf { it.amount }
     val thisMonthGroup = monthlyData.firstOrNull()
     val thisMonthExpenses = thisMonthGroup?.monthTotal ?: 0.0
-    // Extract just the month name (e.g., "April" from "April 2026")
     val thisMonthName = thisMonthGroup?.monthName?.substringBefore(" ") ?: ""
     val thisMonthTitle = if (thisMonthName.isNotEmpty()) "This Month ($thisMonthName)" else "This Month"
-    val totalDays = monthlyData.sumOf { it.days.size }
-    val averageDaily = if (totalDays > 0) totalExpenses / totalDays else 0.0
 
-    // Filter out negative/zero amounts for lowest logic
+    // Core Calculations
+    val totalDays = monthlyData.sumOf { it.days.size }
+    val totalTransactions = expenseItems.size
+
+    val averageDaily = if (totalDays > 0) totalExpenses / totalDays else 0.0
+    val averageExpense = if (totalTransactions > 0) totalExpenses / totalTransactions else 0.0
+
+    // Calculate Median Expense
+    val sortedAmounts = expenseItems.map { it.amount }.sorted()
+    val medianExpense = if (sortedAmounts.isEmpty()) 0.0 else {
+        val mid = sortedAmounts.size / 2
+        if (sortedAmounts.size % 2 == 0) {
+            (sortedAmounts[mid - 1] + sortedAmounts[mid]) / 2.0
+        } else {
+            sortedAmounts[mid]
+        }
+    }
+
     val validExpenses = expenseItems.filter { it.amount > 0.0 }
     val highestExpense = expenseItems.maxOfOrNull { it.amount } ?: 0.0
     val lowestExpense = validExpenses.minOfOrNull { it.amount } ?: 0.0
@@ -134,16 +145,32 @@ fun StatisticsScreen(
         StatCard(
             title = thisMonthTitle,
             value = formatAmount(thisMonthExpenses),
-            icon = Icons.Default.TrendingUp,
+            icon = Icons.AutoMirrored.Filled.TrendingUp,
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
         )
 
         Spacer(Modifier.height(16.dp))
 
+        // --- ENHANCED GRID STATS ---
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SmallStatCard("Avg Daily", formatAmount(averageDaily), Modifier.weight(1f))
+            SmallStatCard("Avg / Expense", formatAmount(averageExpense), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(12.dp))
 
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SmallStatCard("Median Exp.", formatAmount(medianExpense), Modifier.weight(1f))
+            SmallStatCard(
+                title = "Transactions",
+                value = totalTransactions.toString(),
+                modifier = Modifier.weight(1f),
+                isCurrency = false
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SmallStatCard(
                 title = "Highest",
                 value = formatAmount(highestExpense),
@@ -151,11 +178,6 @@ fun StatisticsScreen(
                     selectedStat = StatDetail.Highest(topHighest)
                 }
             )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SmallStatCard(
                 title = "Lowest",
                 value = formatAmount(lowestExpense),
@@ -163,15 +185,16 @@ fun StatisticsScreen(
                     selectedStat = StatDetail.Lowest(topLowest)
                 }
             )
-
-            SmallStatCard(
-                title = "Top Day",
-                value = formatAmount(mostExpensiveDay?.dayTotal ?: 0.0),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    mostExpensiveDay?.let { selectedStat = StatDetail.TopDay(it) }
-                }
-            )
         }
+        Spacer(Modifier.height(12.dp))
+
+        SmallStatCard(
+            title = "Top Spending Day",
+            value = formatAmount(mostExpensiveDay?.dayTotal ?: 0.0),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable {
+                mostExpensiveDay?.let { selectedStat = StatDetail.TopDay(it) }
+            }
+        )
 
         Spacer(Modifier.height(24.dp))
 
@@ -236,9 +259,13 @@ fun StatisticsScreen(
             confirmButton = { TextButton({ selectedMonth = null }) { Text("Close") } },
             title = { Text(month.monthName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // BUG FIX: Added verticalScroll here so long months don't get stuck!
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text("Total: 💸 ${formatAmount(month.monthTotal)}", fontWeight = FontWeight.Bold)
-                    Divider()
+                    HorizontalDivider()
                     month.days.forEach { day ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("• ${day.dateDisplay}")
@@ -269,7 +296,11 @@ fun StatisticsScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // BUG FIX: Added verticalScroll here as well for safety
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     when (stat) {
                         is StatDetail.Highest -> stat.list.forEach { item ->
                             Column {
@@ -339,7 +370,7 @@ fun StatCard(title: String, value: String, icon: ImageVector, color: Color, cont
 }
 
 @Composable
-fun SmallStatCard(title: String, value: String, modifier: Modifier) {
+fun SmallStatCard(title: String, value: String, modifier: Modifier, isCurrency: Boolean = true) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
@@ -348,13 +379,14 @@ fun SmallStatCard(title: String, value: String, modifier: Modifier) {
         Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            Text("💸 $value", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+            val displayText = if (isCurrency) "💸 $value" else value
+            Text(displayText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
         }
     }
 }
 
 // -------------------------
-// CHARTS (Restored UI)
+// CHARTS
 // -------------------------
 @Composable
 fun LineChart(data: List<MonthGroup>, onClick: (MonthGroup) -> Unit) {
