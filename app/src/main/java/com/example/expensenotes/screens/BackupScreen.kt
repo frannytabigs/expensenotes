@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.VpnKey
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -32,6 +34,7 @@ fun BackupScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
 
     // 1. Setup SharedPreferences to save the input fields permanently
     val sharedPrefs = remember {
@@ -41,14 +44,21 @@ fun BackupScreen(
     var botToken by remember { mutableStateOf(sharedPrefs.getString("bot_token", "") ?: "") }
     var chatId by remember { mutableStateOf(sharedPrefs.getString("chat_id", "") ?: "") }
 
-    // 2. Setup the Snackbar for pop-up messages
+    // 2. Setup UI Control States
     val snackbarHostState = remember { SnackbarHostState() }
+    var showHelpDialog by remember { mutableStateOf(false) }
 
-    // 3. Loading states to prevent spam-clicking
+    // 3. Loading states
     var isUploading by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
     var isRestoring by remember { mutableStateOf(false) }
     var pendingJsonToSave by remember { mutableStateOf("") }
+
+    // THE MAGIC VARIABLE: This checks if ANY popup message is currently visible on the screen
+    val isMessageShowing = snackbarHostState.currentSnackbarData != null
+
+    // Disables all buttons if the app is uploading, downloading, restoring, OR if a message is showing
+    val isBusy = isUploading || isDownloading || isRestoring || isMessageShowing
 
     // Launcher for SAVING the file to the device (Export)
     val saveFileLauncher = rememberLauncherForActivityResult(
@@ -59,12 +69,12 @@ fun BackupScreen(
                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                     outputStream.write(pendingJsonToSave.toByteArray())
                 }
-                scope.launch { snackbarHostState.showSnackbar("Backup saved to device successfully! ✅") }
+                scope.launch { snackbarHostState.showSnackbar("Backup saved to device successfully! ✅", duration = SnackbarDuration.Long) }
             } catch (e: Exception) {
-                scope.launch { snackbarHostState.showSnackbar("Failed to save file to device.") }
+                scope.launch { snackbarHostState.showSnackbar("Failed to save file to device.", duration = SnackbarDuration.Long) }
             }
         } else {
-            scope.launch { snackbarHostState.showSnackbar("Save cancelled.") }
+            scope.launch { snackbarHostState.showSnackbar("Save cancelled.", duration = SnackbarDuration.Short) }
         }
         isDownloading = false
     }
@@ -75,25 +85,23 @@ fun BackupScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                // Read the file content
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val jsonString = inputStream?.bufferedReader().use { it?.readText() }
 
                 if (!jsonString.isNullOrBlank()) {
                     isRestoring = true
-                    // Send the read string to the ViewModel to process
                     viewModel.restoreBackupFromJson(jsonString) { success, message ->
                         isRestoring = false
-                        scope.launch { snackbarHostState.showSnackbar(message) }
+                        scope.launch { snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long) }
                     }
                 } else {
-                    scope.launch { snackbarHostState.showSnackbar("The selected file is empty or invalid.") }
+                    scope.launch { snackbarHostState.showSnackbar("The selected file is empty or invalid.", duration = SnackbarDuration.Long) }
                 }
             } catch (e: Exception) {
-                scope.launch { snackbarHostState.showSnackbar("Error reading the file.") }
+                scope.launch { snackbarHostState.showSnackbar("Error reading the file.", duration = SnackbarDuration.Long) }
             }
         } else {
-            scope.launch { snackbarHostState.showSnackbar("Restore cancelled.") }
+            scope.launch { snackbarHostState.showSnackbar("Restore cancelled.", duration = SnackbarDuration.Short) }
         }
     }
 
@@ -111,7 +119,7 @@ fun BackupScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Import & Export Expenses",
+                text = "Backup & Export",
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
@@ -124,11 +132,25 @@ fun BackupScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Send to Telegram",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Send to Telegram",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        IconButton(onClick = { showHelpDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.HelpOutline,
+                                contentDescription = "Help Guide",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Enter your bot details to securely send your expenses.json file to your chat.",
@@ -148,7 +170,7 @@ fun BackupScreen(
                         leadingIcon = { Icon(Icons.Default.VpnKey, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        enabled = !isUploading && !isRestoring
+                        enabled = !isBusy // Disables if busy or message showing
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -164,7 +186,7 @@ fun BackupScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        enabled = !isUploading && !isRestoring
+                        enabled = !isBusy // Disables if busy or message showing
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -172,7 +194,7 @@ fun BackupScreen(
                     Button(
                         onClick = {
                             if (botToken.isBlank() || chatId.isBlank()) {
-                                scope.launch { snackbarHostState.showSnackbar("Please enter both Bot Token and Chat ID.") }
+                                scope.launch { snackbarHostState.showSnackbar("Please enter both Bot Token and Chat ID.", duration = SnackbarDuration.Short) }
                                 return@Button
                             }
 
@@ -185,22 +207,24 @@ fun BackupScreen(
                                         chatId = chatId,
                                         jsonContent = jsonString,
                                         onStatusMessage = { message ->
-                                            if (message == "Sending...") {
-                                                scope.launch { snackbarHostState.showSnackbar(message) }
-                                            } else {
+                                            // We skip showing the "Sending..." snackbar to avoid spam,
+                                            // because the button already has a loading spinner!
+                                            if (message != "Sending...") {
                                                 isUploading = false
-                                                scope.launch { snackbarHostState.showSnackbar(message) }
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+                                                }
                                             }
                                         }
                                     )
                                 } else {
                                     isUploading = false
-                                    scope.launch { snackbarHostState.showSnackbar("Error generating JSON. Database might be empty.") }
+                                    scope.launch { snackbarHostState.showSnackbar("Error generating JSON. Database might be empty.", duration = SnackbarDuration.Long) }
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isUploading && !isRestoring
+                        enabled = !isBusy // Prevents spam clicking
                     ) {
                         if (isUploading) {
                             CircularProgressIndicator(
@@ -250,12 +274,12 @@ fun BackupScreen(
                                     saveFileLauncher.launch("expenses_backup.json")
                                 } else {
                                     isDownloading = false
-                                    scope.launch { snackbarHostState.showSnackbar("Error generating JSON.") }
+                                    scope.launch { snackbarHostState.showSnackbar("Error generating JSON.", duration = SnackbarDuration.Long) }
                                 }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isDownloading && !isRestoring
+                        enabled = !isBusy
                     ) {
                         if (isDownloading) {
                             CircularProgressIndicator(
@@ -300,7 +324,6 @@ fun BackupScreen(
 
                     Button(
                         onClick = {
-                            // Launch the file picker allowing the user to select only JSON files
                             openFileLauncher.launch(arrayOf("application/json"))
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -308,7 +331,7 @@ fun BackupScreen(
                             containerColor = MaterialTheme.colorScheme.error,
                             contentColor = MaterialTheme.colorScheme.onError
                         ),
-                        enabled = !isUploading && !isDownloading && !isRestoring
+                        enabled = !isBusy
                     ) {
                         if (isRestoring) {
                             CircularProgressIndicator(
@@ -329,5 +352,75 @@ fun BackupScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // --- FANCY TELEGRAM HELP POP-UP DIALOG ---
+    if (showHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            title = {
+                Text(
+                    text = "Telegram Setup Guide 🤖",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "To send backups directly to your chat, you will need a Bot Token and your Chat ID.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text(
+                        text = "🔑 Bot Token:",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "Message @BotFather on Telegram, use the /newbot command, and copy the long HTTP API token provided.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Text(
+                        text = "💬 Chat ID:",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "Message @userinfobot or @RawDataBot on Telegram to get your unique account ID number.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "💡 Vital Note: You MUST open a conversation with your bot inside Telegram and click \"Start\" before attempting to send a backup from this app!",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        uriHandler.openUri("https://core.telegram.org/bots/features#creating-a-new-bot")
+                    }
+                ) {
+                    Text("Read Docs Website 🌐")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHelpDialog = false }) {
+                    Text("Got It")
+                }
+            }
+        )
     }
 }
