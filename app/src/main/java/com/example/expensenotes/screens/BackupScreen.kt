@@ -6,12 +6,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.VpnKey
@@ -29,9 +31,15 @@ import com.example.expensenotes.model.NewExpenseViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun BackupScreen(
-    viewModel: NewExpenseViewModel = viewModel()
-) {
+fun BackupScreen(viewModel: NewExpenseViewModel = viewModel()) {
+    // 1. Add this to collect the total entries
+    val totalEntries by viewModel.totalEntriesCount.collectAsState()
+
+    // 2. Add a LaunchedEffect to ensure data is loaded when screen opens
+    LaunchedEffect(Unit) {
+        viewModel.loadExpenses()
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -125,6 +133,40 @@ fun BackupScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 24.dp)
             )
+            // Paste this inside your Column where you want the count to appear
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp) // Spacing before the buttons
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info, // You might need to import androidx.compose.material.icons.filled.Info
+                        contentDescription = "Entries Info",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Total Entries in Database: ",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "$totalEntries",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
 
             // --- 1. TELEGRAM BACKUP CARD ---
             Card(

@@ -53,7 +53,9 @@ fun ModifyExpensesScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        OutlinedTextField(
+        if (monthlyData.isNotEmpty() || searchQuery.isNotEmpty()) {
+
+            OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.updateSearchQuery(it) },
             modifier = Modifier
@@ -70,7 +72,8 @@ fun ModifyExpensesScreen(
             },
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
-        )
+            )
+        }
 
         // --- NEW: Show loading spinner if screen is not ready ---
         if (!isScreenReady) {

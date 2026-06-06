@@ -1,6 +1,8 @@
 package com.example.expensenotes.model
 
 import android.app.Application
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.expensenotes.screens.DayGroup
@@ -27,6 +29,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
 class NewExpenseViewModel(application: Application) : AndroidViewModel(application) {
+
 
     private val dao = ExpenseDatabase.getDatabase(application).expenseDao()
     private val gson = Gson()
@@ -85,6 +88,15 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
     init {
         migrateJsonToRoomIfNeeded(application)
     }
+
+    val totalEntriesCount: StateFlow<Int> = monthlyData
+        .map { months ->
+            // This counts all individual expenses across all days and months
+            months.sumOf { month ->
+                month.days.sumOf { day -> day.expenses.size }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun updateDescription(newDescription: String) { _uiState.update { it.copy(description = newDescription) } }
     fun updateAmount(newAmount: String) { _uiState.update { it.copy(amount = newAmount) } }
@@ -246,6 +258,8 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
             ✨ <b>Backup Successful!</b> ✨
             
             Hello! Here is the expense backup you requested. 📦
+            
+            Total Entries: ${totalEntriesCount.value}
             
             📅 <b>Date Requested:</b> $currentDateTime
             

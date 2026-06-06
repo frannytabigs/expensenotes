@@ -80,7 +80,7 @@ fun AboutScreen() {
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        text = "Version 1.4.0",
+                        text = "Version 1.4.9",
                         color = Color.White,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)

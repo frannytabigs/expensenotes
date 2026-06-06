@@ -102,11 +102,10 @@ fun ViewExpensesScreen(
             }
         } else if (monthlyData.isEmpty() && searchQuery.isBlank()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp).imePadding(),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Top
+                verticalArrangement = Arrangement.Center
             ) {
-                Spacer(modifier = Modifier.height(45.dp))
                 Icon(
                     imageVector = Icons.Default.Description,
                     contentDescription = null,

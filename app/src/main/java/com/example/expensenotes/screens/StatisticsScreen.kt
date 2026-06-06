@@ -1,5 +1,6 @@
 package com.example.expensenotes.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -16,7 +17,9 @@ import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,12 +30,14 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.expensenotes.model.NewExpenseViewModel
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 // -------------------------
@@ -66,15 +71,32 @@ sealed class FormulaStat {
 fun StatisticsScreen(
     viewModel: NewExpenseViewModel = viewModel()
 ) {
-    LaunchedEffect(Unit) { viewModel.loadExpenses() }
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(Unit) {
+        viewModel.loadExpenses()
+        viewModel.updateSearchQuery("") // Reset search when screen opens
+    }
 
     val monthlyData by viewModel.monthlyData.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
 
     var selectedMonth by remember { mutableStateOf<MonthGroup?>(null) }
     var selectedStat by remember { mutableStateOf<StatDetail?>(null) }
     var selectedFormulaStat by remember { mutableStateOf<FormulaStat?>(null) }
     var showLineChart by remember { mutableStateOf(true) }
+
+    // Creates a smooth, brief visual loading effect whenever the user types
+    var isSearching by remember { mutableStateOf(false) }
+    LaunchedEffect(searchQuery) {
+        isSearching = true
+        delay(350) // Small delay to let the loading bar show and data re-calculate visually
+        isSearching = false
+    }
+
+    // Combine database loading state with our visual search loading state
+    val isCurrentlyLoading = uiState.isLoading || isSearching
 
     val expenseItems = monthlyData.flatMap { month ->
         month.days.flatMap { day ->
@@ -109,8 +131,8 @@ fun StatisticsScreen(
 
     val trendSubtitle = when {
         lastMonthGroup == null -> "No previous data"
-        thisMonthExpenses > lastMonthExpenses -> "Up from last month (${lastMonthName}) (💸 ${formatAmount(thisMonthExpenses - lastMonthExpenses)} Difference)"
-        thisMonthExpenses < lastMonthExpenses -> "Down from last month (${lastMonthName}) (💸 ${formatAmount(lastMonthExpenses - thisMonthExpenses)} Difference)"
+        thisMonthExpenses > lastMonthExpenses -> "Up from last month (${lastMonthName}) (\uD83D\uDCB8 ${formatAmount(thisMonthExpenses - lastMonthExpenses)} Difference)"
+        thisMonthExpenses < lastMonthExpenses -> "Down from last month (${lastMonthName}) (\uD83D\uDCB8 ${formatAmount(lastMonthExpenses - thisMonthExpenses)} Difference)"
         else -> "Same as last month (${lastMonthName})"
     }
 
@@ -143,167 +165,263 @@ fun StatisticsScreen(
         .flatMap { it.days }
         .maxByOrNull { it.expenses.sumOf { e -> e.amount.toSafeDouble() } }
 
-    if (uiState.isLoading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        return
-    }
-
-    if (monthlyData.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No data available for statistics.",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        return
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        StatCard(
-            title = "Total Expenses",
-            value = formatAmount(totalExpenses),
-            icon = Icons.Default.Analytics,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        )
-        Spacer(Modifier.height(12.dp))
-
-        // Updated This Month Card with Trend Data
-        StatCard(
-            title = thisMonthTitle,
-            value = formatAmount(thisMonthExpenses),
-            subtitle = trendSubtitle,
-            icon = trendIcon,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        // --- ENHANCED GRID STATS ---
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallStatCard(
-                title = "Avg Daily",
-                value = formatAmount(averageDaily),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedFormulaStat = FormulaStat.AvgDaily(totalExpenses, totalDays, averageDaily)
-                }
-            )
-            SmallStatCard(
-                title = "Avg / Expense",
-                value = formatAmount(averageExpense),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedFormulaStat = FormulaStat.AvgExpense(totalExpenses, totalTransactions, averageExpense)
-                }
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallStatCard(
-                title = "Median Exp.",
-                value = formatAmount(medianExpense),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedFormulaStat = FormulaStat.Median(medianExpense, totalTransactions)
-                }
-            )
-            SmallStatCard(
-                title = "Transactions",
-                value = totalTransactions.toString(),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedFormulaStat = FormulaStat.Transactions(totalTransactions)
-                },
-                isCurrency = false
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallStatCard(
-                title = "Highest",
-                value = formatAmount(highestExpense),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedStat = StatDetail.Highest(topHighest)
-                }
-            )
-            SmallStatCard(
-                title = "Lowest",
-                value = formatAmount(lowestExpense),
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
-                    selectedStat = StatDetail.Lowest(topLowest)
-                }
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-
-        SmallStatCard(
-            title = "Top Spending Day",
-            value = formatAmount(mostExpensiveDay?.dayTotal ?: 0.0),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable {
-                mostExpensiveDay?.let { selectedStat = StatDetail.TopDay(it) }
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
             }
-        )
+    ) {
 
-        Spacer(Modifier.height(24.dp))
+        // --- FIXED SEARCH BAR ---
+        if (monthlyData.isNotEmpty() || searchQuery.isNotEmpty()) {
 
-        // GRAPH SECTION
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Monthly Trend",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.surface)
-                    ) {
-                        IconButton(onClick = { showLineChart = true }) {
-                            Icon(
-                                Icons.Default.ShowChart, null,
-                                tint = if (showLineChart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
-                        IconButton(onClick = { showLineChart = false }) {
-                            Icon(
-                                Icons.Default.BarChart, null,
-                                tint = if (!showLineChart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { viewModel.updateSearchQuery(it) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+                placeholder = { Text("Filter by their description") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search Icon") },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            viewModel.updateSearchQuery("")
+                            focusManager.clearFocus()
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear Search")
                         }
                     }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
+        // --- LOADING BAR ---
+        AnimatedVisibility(visible = isCurrentlyLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        }
+
+        // --- FILTER NOTIFICATION BANNER (Only shows when NOT loading) ---
+        AnimatedVisibility(visible = searchQuery.isNotEmpty() && !isCurrentlyLoading) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = "Filter Info",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Showing statistics only for \"$searchQuery\"",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
+            }
+        }
+
+        // --- EMPTY STATES OR STATS DISPLAY ---
+        if (isCurrentlyLoading) {
+            // Replaces the circular spinner with a clean centered text since the loading bar is at the top
+            Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Calculating statistics...",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = FontStyle.Italic
+                )
+            }
+        } else if (monthlyData.isEmpty() && searchQuery.isNotEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No results found for \"$searchQuery\"",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp)
+                )
+            }
+        } else if (monthlyData.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No data available for statistics.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(32.dp)
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+            ) {
+                StatCard(
+                    title = "Total Expenses",
+                    value = formatAmount(totalExpenses),
+                    icon = Icons.Default.Analytics,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(Modifier.height(12.dp))
+
+                // Updated This Month Card with Trend Data
+                StatCard(
+                    title = thisMonthTitle,
+                    value = formatAmount(thisMonthExpenses),
+                    subtitle = trendSubtitle,
+                    icon = trendIcon,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                // --- ENHANCED GRID STATS ---
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SmallStatCard(
+                        title = "Avg Daily",
+                        value = formatAmount(averageDaily),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedFormulaStat = FormulaStat.AvgDaily(totalExpenses, totalDays, averageDaily)
+                        }
+                    )
+                    SmallStatCard(
+                        title = "Avg / Expense",
+                        value = formatAmount(averageExpense),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedFormulaStat = FormulaStat.AvgExpense(totalExpenses, totalTransactions, averageExpense)
+                        }
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SmallStatCard(
+                        title = "Median Exp.",
+                        value = formatAmount(medianExpense),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedFormulaStat = FormulaStat.Median(medianExpense, totalTransactions)
+                        }
+                    )
+                    SmallStatCard(
+                        title = "Transactions",
+                        value = totalTransactions.toString(),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedFormulaStat = FormulaStat.Transactions(totalTransactions)
+                        },
+                        isCurrency = false
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SmallStatCard(
+                        title = "Highest",
+                        value = formatAmount(highestExpense),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedStat = StatDetail.Highest(topHighest)
+                        }
+                    )
+                    SmallStatCard(
+                        title = "Lowest",
+                        value = formatAmount(lowestExpense),
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                            selectedStat = StatDetail.Lowest(topLowest)
+                        }
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                SmallStatCard(
+                    title = "Top Spending Day",
+                    value = formatAmount(mostExpensiveDay?.dayTotal ?: 0.0),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable {
+                        mostExpensiveDay?.let { selectedStat = StatDetail.TopDay(it) }
+                    }
+                )
 
                 Spacer(Modifier.height(24.dp))
 
-                val chartData = monthlyData.reversed()
+                // GRAPH SECTION
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Monthly Trend",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
 
-                if (showLineChart) {
-                    LineChart(chartData) { selectedMonth = it }
-                } else {
-                    BarChart(chartData) { selectedMonth = it }
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(MaterialTheme.colorScheme.surface)
+                            ) {
+                                IconButton(onClick = { showLineChart = true }) {
+                                    Icon(
+                                        Icons.Default.ShowChart, null,
+                                        tint = if (showLineChart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                }
+                                IconButton(onClick = { showLineChart = false }) {
+                                    Icon(
+                                        Icons.Default.BarChart, null,
+                                        tint = if (!showLineChart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(24.dp))
+
+                        val chartData = monthlyData.reversed()
+
+                        if (showLineChart) {
+                            LineChart(chartData) { selectedMonth = it }
+                        } else {
+                            BarChart(chartData) { selectedMonth = it }
+                        }
+                    }
                 }
+                Spacer(Modifier.height(32.dp))
             }
         }
-        Spacer(Modifier.height(32.dp))
     }
 
     // -------------------------
@@ -319,12 +437,12 @@ fun StatisticsScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Total: 💸 ${formatAmount(month.monthTotal)}", fontWeight = FontWeight.Bold)
+                    Text("Total: \uD83D\uDCB8 ${formatAmount(month.monthTotal)}", fontWeight = FontWeight.Bold)
                     HorizontalDivider()
                     month.days.forEach { day ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("• ${day.dateDisplay}")
-                            Text("💸 ${formatAmount(day.dayTotal)}", fontWeight = FontWeight.SemiBold)
+                            Text("\uD83D\uDCB8 ${formatAmount(day.dayTotal)}", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -358,13 +476,13 @@ fun StatisticsScreen(
                     when (stat) {
                         is StatDetail.Highest -> stat.list.forEach { item ->
                             Column {
-                                Text("• ${item.description}: 💸 ${formatAmount(item.amount)}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("• ${item.description}: \uD83D\uDCB8 ${formatAmount(item.amount)}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                                 Text("   ${item.date}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         is StatDetail.Lowest -> stat.list.forEach { item ->
                             Column {
-                                Text("• ${item.description}: 💸 ${formatAmount(item.amount)}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("• ${item.description}: \uD83D\uDCB8 ${formatAmount(item.amount)}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                                 Text("   ${item.date}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -383,7 +501,7 @@ fun StatisticsScreen(
                                 )
 
                                 Text(
-                                    text = "Total Spent: 💸 ${formatAmount(total)}",
+                                    text = "Total Spent: \uD83D\uDCB8 ${formatAmount(total)}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -407,9 +525,9 @@ fun StatisticsScreen(
         }
 
         val formulaText = when (stat) {
-            is FormulaStat.AvgDaily -> "💸 ${formatAmount(stat.total)}\n÷ ${stat.days} days recorded\n= 💸 ${formatAmount(stat.result)} / day"
-            is FormulaStat.AvgExpense -> "💸 ${formatAmount(stat.total)}\n÷ ${stat.transactions} transactions\n= 💸 ${formatAmount(stat.result)} / expense"
-            is FormulaStat.Median -> "Middle value out of\n${stat.transactions} sorted transactions\n= 💸 ${formatAmount(stat.median)}"
+            is FormulaStat.AvgDaily -> "\uD83D\uDCB8 ${formatAmount(stat.total)}\n÷ ${stat.days} days recorded\n= \uD83D\uDCB8 ${formatAmount(stat.result)} / day"
+            is FormulaStat.AvgExpense -> "\uD83D\uDCB8 ${formatAmount(stat.total)}\n÷ ${stat.transactions} transactions\n= \uD83D\uDCB8 ${formatAmount(stat.result)} / expense"
+            is FormulaStat.Median -> "Middle value out of\n${stat.transactions} sorted transactions\n= \uD83D\uDCB8 ${formatAmount(stat.median)}"
             is FormulaStat.Transactions -> "Sum of all individual\nexpense entries\n= ${stat.transactions} total"
         }
 
@@ -490,7 +608,7 @@ fun StatCard(title: String, value: String, subtitle: String? = null, icon: Image
             Spacer(Modifier.width(16.dp))
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = contentColor.copy(alpha = 0.8f))
-                Text("💸 $value", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = contentColor)
+                Text("\uD83D\uDCB8 $value", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = contentColor)
 
                 // New subtitle display matching the card's theme
                 if (subtitle != null) {
@@ -516,7 +634,7 @@ fun SmallStatCard(title: String, value: String, modifier: Modifier, isCurrency: 
         Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            val displayText = if (isCurrency) "💸 $value" else value
+            val displayText = if (isCurrency) "\uD83D\uDCB8 $value" else value
             Text(displayText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
         }
     }
