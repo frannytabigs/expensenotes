@@ -27,12 +27,6 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses_table")
     suspend fun getAllExpensesList(): List<ExpenseEntity>
 
-    // ADD THIS to ExpenseDao.kt
-    @Query("SELECT * FROM expenses_table") // Make sure "expenses" matches your actual table name!
-    suspend fun getAllExpensesForBackup(): List<ExpenseEntity>
-
-    // ADD THESE to ExpenseDao.kt
-
     // Deletes all current records for a fresh restore
     @Query("DELETE FROM expenses_table") // Ensure "expenses" is your actual table name
     suspend fun deleteAllExpenses()

@@ -125,19 +125,13 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    // 1. Uniform Local Save (Matches Export format)
     private suspend fun syncDatabaseToJson() {
         if (folder == null) return
         try {
             val allExpenses = dao.getAllExpensesList()
-            val mapToSave = mutableMapOf<String, MutableList<NewExpenseModel>>()
-
-            allExpenses.forEach { entity ->
-                val dateKey = entity.date
-                val model = NewExpenseModel(entity.description, entity.amount, entity.date)
-                mapToSave.getOrPut(dateKey) { mutableListOf() }.add(model)
-            }
             val file = File(folder, jsonFileName)
-            file.writeText(gson.toJson(mapToSave))
+            file.writeText(gson.toJson(allExpenses))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -177,17 +171,30 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
 
             try {
                 val jsonString = file.readText()
-                val mapType = object : TypeToken<Map<String, List<NewExpenseModel>>>() {}.type
-                val rawMap: Map<String, List<NewExpenseModel>> = gson.fromJson(jsonString, mapType) ?: emptyMap()
 
-                rawMap.forEach { (_, expenses) ->
-                    expenses.forEach { oldExpense ->
-                        val newEntity = ExpenseEntity(
-                            description = oldExpense.description,
-                            amount = oldExpense.amount,
-                            date = oldExpense.date
-                        )
-                        dao.insertExpense(newEntity)
+                // Try parsing the new uniform flat list first
+                try {
+                    val listType = object : TypeToken<List<ExpenseEntity>>() {}.type
+                    val importedExpenses: List<ExpenseEntity> = gson.fromJson(jsonString, listType) ?: emptyList()
+                    if (importedExpenses.isNotEmpty()) {
+                        dao.insertAll(importedExpenses)
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    // Fallback: If it fails, it's likely the old Map<String, List<NewExpenseModel>> format.
+                    // This ensures existing local data isn't lost during the transition.
+                    val mapType = object : TypeToken<Map<String, List<NewExpenseModel>>>() {}.type
+                    val rawMap: Map<String, List<NewExpenseModel>> = gson.fromJson(jsonString, mapType) ?: emptyMap()
+
+                    rawMap.forEach { (_, expenses) ->
+                        expenses.forEach { oldExpense ->
+                            val newEntity = ExpenseEntity(
+                                description = oldExpense.description,
+                                amount = oldExpense.amount,
+                                date = oldExpense.date
+                            )
+                            dao.insertExpense(newEntity)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -195,16 +202,14 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
     }
-
     // --- BACKUP LOGIC ---
 
-    // 1. Extracts the database and turns it into a JSON string
+    // 2. Uniform Export (Uses the same DAO method and shared Gson)
     fun generateBackupJson(onResult: (String?) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Fetch all items and convert them to a JSON string using Gson
-                val allExpenses = dao.getAllExpensesForBackup() // Change 'dao' to your actual DAO variable name if different
-                val jsonString = Gson().toJson(allExpenses)
+                val allExpenses = dao.getAllExpensesList()
+                val jsonString = gson.toJson(allExpenses)
 
                 withContext(Dispatchers.Main) {
                     onResult(jsonString)
@@ -293,15 +298,12 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
 
     // --- RESTORE LOGIC ---
 
-    // Parses the JSON string and replaces the current database
+    // 3. Uniform Import
     fun restoreBackupFromJson(jsonString: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. Tell Gson what type of list we are trying to create
                 val listType = object : TypeToken<List<ExpenseEntity>>() {}.type
-
-                // 2. Convert the JSON string back into a List of ExpenseEntity
-                val importedExpenses: List<ExpenseEntity> = Gson().fromJson(jsonString, listType)
+                val importedExpenses: List<ExpenseEntity> = gson.fromJson(jsonString, listType)
 
                 if (importedExpenses.isEmpty()) {
                     withContext(Dispatchers.Main) {
@@ -310,11 +312,8 @@ class NewExpenseViewModel(application: Application) : AndroidViewModel(applicati
                     return@launch
                 }
 
-                // 3. Wipe the current database and insert the new data
-                dao.deleteAllExpenses() // Change 'dao' to match your variable name
+                dao.deleteAllExpenses()
                 dao.insertAll(importedExpenses)
-
-                // 4. Reload the data so the UI updates immediately
                 loadExpenses()
 
                 withContext(Dispatchers.Main) {

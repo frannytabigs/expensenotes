@@ -11,9 +11,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +27,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,6 +51,14 @@ sealed class StatDetail {
     data class TopDay(val day: DayGroup) : StatDetail()
 }
 
+// State for the new Formula popups
+sealed class FormulaStat {
+    data class AvgDaily(val total: Double, val days: Int, val result: Double) : FormulaStat()
+    data class AvgExpense(val total: Double, val transactions: Int, val result: Double) : FormulaStat()
+    data class Median(val median: Double, val transactions: Int) : FormulaStat()
+    data class Transactions(val transactions: Int) : FormulaStat()
+}
+
 // -------------------------
 // MAIN SCREEN
 // -------------------------
@@ -61,6 +73,7 @@ fun StatisticsScreen(
 
     var selectedMonth by remember { mutableStateOf<MonthGroup?>(null) }
     var selectedStat by remember { mutableStateOf<StatDetail?>(null) }
+    var selectedFormulaStat by remember { mutableStateOf<FormulaStat?>(null) }
     var showLineChart by remember { mutableStateOf(true) }
 
     val expenseItems = monthlyData.flatMap { month ->
@@ -76,10 +89,30 @@ fun StatisticsScreen(
     }
 
     val totalExpenses = expenseItems.sumOf { it.amount }
+
+    // --- DYNAMIC THIS MONTH VS LAST MONTH CALCULATION ---
     val thisMonthGroup = monthlyData.firstOrNull()
     val thisMonthExpenses = thisMonthGroup?.monthTotal ?: 0.0
     val thisMonthName = thisMonthGroup?.monthName?.substringBefore(" ") ?: ""
     val thisMonthTitle = if (thisMonthName.isNotEmpty()) "This Month ($thisMonthName)" else "This Month"
+
+    val lastMonthGroup = monthlyData.getOrNull(1)
+    val lastMonthExpenses = lastMonthGroup?.monthTotal ?: 0.0
+    val lastMonthName = lastMonthGroup?.monthName?.substringBefore(" ") ?: ""
+
+    val trendIcon = when {
+        lastMonthGroup == null -> Icons.AutoMirrored.Filled.TrendingFlat
+        thisMonthExpenses > lastMonthExpenses -> Icons.AutoMirrored.Filled.TrendingUp
+        thisMonthExpenses < lastMonthExpenses -> Icons.AutoMirrored.Filled.TrendingDown
+        else -> Icons.AutoMirrored.Filled.TrendingFlat
+    }
+
+    val trendSubtitle = when {
+        lastMonthGroup == null -> "No previous data"
+        thisMonthExpenses > lastMonthExpenses -> "Up from last month (${lastMonthName}) (💸 ${formatAmount(thisMonthExpenses - lastMonthExpenses)} Difference)"
+        thisMonthExpenses < lastMonthExpenses -> "Down from last month (${lastMonthName}) (💸 ${formatAmount(lastMonthExpenses - thisMonthExpenses)} Difference)"
+        else -> "Same as last month (${lastMonthName})"
+    }
 
     // Core Calculations
     val totalDays = monthlyData.sumOf { it.days.size }
@@ -142,10 +175,13 @@ fun StatisticsScreen(
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
         )
         Spacer(Modifier.height(12.dp))
+
+        // Updated This Month Card with Trend Data
         StatCard(
             title = thisMonthTitle,
             value = formatAmount(thisMonthExpenses),
-            icon = Icons.AutoMirrored.Filled.TrendingUp,
+            subtitle = trendSubtitle,
+            icon = trendIcon,
             color = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
         )
@@ -154,17 +190,37 @@ fun StatisticsScreen(
 
         // --- ENHANCED GRID STATS ---
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallStatCard("Avg Daily", formatAmount(averageDaily), Modifier.weight(1f))
-            SmallStatCard("Avg / Expense", formatAmount(averageExpense), Modifier.weight(1f))
+            SmallStatCard(
+                title = "Avg Daily",
+                value = formatAmount(averageDaily),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                    selectedFormulaStat = FormulaStat.AvgDaily(totalExpenses, totalDays, averageDaily)
+                }
+            )
+            SmallStatCard(
+                title = "Avg / Expense",
+                value = formatAmount(averageExpense),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                    selectedFormulaStat = FormulaStat.AvgExpense(totalExpenses, totalTransactions, averageExpense)
+                }
+            )
         }
         Spacer(Modifier.height(12.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SmallStatCard("Median Exp.", formatAmount(medianExpense), Modifier.weight(1f))
+            SmallStatCard(
+                title = "Median Exp.",
+                value = formatAmount(medianExpense),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                    selectedFormulaStat = FormulaStat.Median(medianExpense, totalTransactions)
+                }
+            )
             SmallStatCard(
                 title = "Transactions",
                 value = totalTransactions.toString(),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable {
+                    selectedFormulaStat = FormulaStat.Transactions(totalTransactions)
+                },
                 isCurrency = false
             )
         }
@@ -259,7 +315,6 @@ fun StatisticsScreen(
             confirmButton = { TextButton({ selectedMonth = null }) { Text("Close") } },
             title = { Text(month.monthName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
             text = {
-                // BUG FIX: Added verticalScroll here so long months don't get stuck!
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -278,7 +333,7 @@ fun StatisticsScreen(
     }
 
     // -------------------------
-    // STAT POPUP
+    // STAT LIST POPUP (Highest, Lowest, TopDay)
     // -------------------------
     selectedStat?.let { stat ->
         AlertDialog(
@@ -296,7 +351,6 @@ fun StatisticsScreen(
                 )
             },
             text = {
-                // BUG FIX: Added verticalScroll here as well for safety
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -340,13 +394,86 @@ fun StatisticsScreen(
             }
         )
     }
+
+    // -------------------------
+    // FORMULA POPUP
+    // -------------------------
+    selectedFormulaStat?.let { stat ->
+        val titleText = when (stat) {
+            is FormulaStat.AvgDaily -> "Average Daily Spend"
+            is FormulaStat.AvgExpense -> "Average Per Expense"
+            is FormulaStat.Median -> "Median Expense"
+            is FormulaStat.Transactions -> "Total Transactions"
+        }
+
+        val formulaText = when (stat) {
+            is FormulaStat.AvgDaily -> "💸 ${formatAmount(stat.total)}\n÷ ${stat.days} days recorded\n= 💸 ${formatAmount(stat.result)} / day"
+            is FormulaStat.AvgExpense -> "💸 ${formatAmount(stat.total)}\n÷ ${stat.transactions} transactions\n= 💸 ${formatAmount(stat.result)} / expense"
+            is FormulaStat.Median -> "Middle value out of\n${stat.transactions} sorted transactions\n= 💸 ${formatAmount(stat.median)}"
+            is FormulaStat.Transactions -> "Sum of all individual\nexpense entries\n= ${stat.transactions} total"
+        }
+
+        val infoText = when (stat) {
+            is FormulaStat.AvgDaily -> "This shows your typical daily spending rate. It divides your overall total expenses by the number of unique days you've recorded purchases."
+            is FormulaStat.AvgExpense -> "This represents the typical amount you spend every time you make a single transaction. It divides your total expenses by the raw number of purchases."
+            is FormulaStat.Median -> "The median is the exact middle point of your expenses. Unlike an 'Average', it is not skewed if you have a few unusually massive purchases or extremely tiny ones."
+            is FormulaStat.Transactions -> "This is simply the raw count of how many separate expense items you have logged in the application."
+        }
+
+        AlertDialog(
+            onDismissRequest = { selectedFormulaStat = null },
+            confirmButton = {
+                TextButton(onClick = { selectedFormulaStat = null }) { Text("Got it") }
+            },
+            icon = { Icon(Icons.Default.Info, contentDescription = "Info") },
+            title = {
+                Text(
+                    text = titleText,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = formulaText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+
+                    Text(
+                        text = infoText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        fontStyle = FontStyle.Italic
+                    )
+                }
+            }
+        )
+    }
 }
 
 // -------------------------
 // UI COMPONENTS
 // -------------------------
 @Composable
-fun StatCard(title: String, value: String, icon: ImageVector, color: Color, contentColor: Color) {
+fun StatCard(title: String, value: String, subtitle: String? = null, icon: ImageVector, color: Color, contentColor: Color) {
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = color),
@@ -364,6 +491,16 @@ fun StatCard(title: String, value: String, icon: ImageVector, color: Color, cont
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = contentColor.copy(alpha = 0.8f))
                 Text("💸 $value", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = contentColor)
+
+                // New subtitle display matching the card's theme
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = contentColor.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
         }
     }
